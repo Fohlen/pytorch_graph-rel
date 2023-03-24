@@ -42,7 +42,7 @@ def get_args():
 
 def train_dl(args, model, dl, optzr):
     def get_loss(weight_loss, out, ans):
-        out, ans = out.flatten(0, len(out.shape)-2), ans.flatten(0, len(ans.shape)-1).cuda()
+        out, ans = out.flatten(0, len(out.shape)-2), ans.flatten(0, len(ans.shape)-1)
         ls = torch.nn.functional.cross_entropy(out, ans, ignore_index=-1, reduction='none')
         weight = 1.0-(ans==-1).float()
         weight.masked_fill_(ans>0, weight_loss)
@@ -52,12 +52,12 @@ def train_dl(args, model, dl, optzr):
     ret = {'ls_ne': [], 'ls_rel': []}
     for s, inp_sent, inp_pos, dep_fw, dep_bw, ans_ne, ans_rel in tqdm(dl, ascii=True):
         if args.arch=='1p':
-            out_ne, out_rel = model(inp_sent.cuda(), inp_pos.cuda(), dep_fw.cuda(), dep_bw.cuda())
+            out_ne, out_rel = model(inp_sent, inp_pos, dep_fw, dep_bw.cuda())
             ls_ne, ls_rel = get_loss(args.weight_loss, out_ne, ans_ne), get_loss(args.weight_loss, out_rel, ans_rel)
             ls = ls_ne + args.weight_alpha*ls_rel
         
         elif args.arch=='2p':
-            out_ne1p, out_rel1p, out_ne2p, out_rel2p = model(inp_sent.cuda(), inp_pos.cuda(), dep_fw.cuda(), dep_bw.cuda())
+            out_ne1p, out_rel1p, out_ne2p, out_rel2p = model(inp_sent, inp_pos, dep_fw, dep_bw.cuda())
             ls_ne1p, ls_rel1p = get_loss(args.weight_loss, out_ne1p, ans_ne), get_loss(args.weight_loss, out_rel1p, ans_rel)
             ls_ne2p, ls_rel2p = get_loss(args.weight_loss, out_ne2p, ans_ne), get_loss(args.weight_loss, out_rel2p, ans_rel)
             ls_ne, ls_rel = ls_ne2p, ls_rel2p
@@ -78,9 +78,9 @@ def eval_dl(model, dl):
     I = 0
     for s, inp_sent, inp_pos, dep_fw, dep_bw, ans_ne, ans_rel in tqdm(dl, ascii=True):
         if args.arch=='1p':
-            out_ne, out_rel = model(inp_sent.cuda(), inp_pos.cuda(), dep_fw.cuda(), dep_bw.cuda())
+            out_ne, out_rel = model(inp_sent, inp_pos, dep_fw, dep_bw.cuda())
         elif args.arch=='2p':
-            _, _, out_ne, out_rel = model(inp_sent.cuda(), inp_pos.cuda(), dep_fw.cuda(), dep_bw.cuda())
+            _, _, out_ne, out_rel = model(inp_sent, inp_pos, dep_fw, dep_bw.cuda())
         
         out_ne, out_rel = [torch.argmax(out, dim=-1).data.cpu().numpy() for out in [out_ne, out_rel]]
         for o_ne, o_rel in zip(out_ne, out_rel):
@@ -144,7 +144,7 @@ if __name__=='__main__':
     
     model = GraphRel(len(ds_tr.POS)+1, args.num_ne, args.num_rel, 
                      args.size_hid, args.layer_rnn, args.layer_gcn, args.dropout, 
-                     args.arch).cuda()
+                     args.arch)
     torch.save(model.state_dict(), '%s/model_0.pt'%(args.path_output))
     
     optzr = torch.optim.AdamW(model.parameters(), lr=args.lr)
@@ -163,4 +163,3 @@ if __name__=='__main__':
         
         for pg in optzr.param_groups:
             pg['lr'] *= args.lr_decay
-        
