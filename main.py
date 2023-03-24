@@ -1,7 +1,16 @@
+import argparse
+import json
+import os
+from datetime import datetime
 
-from lib import *
-from dataset import *
-from model import *
+import numpy as np
+import spacy
+import torch
+from tqdm import tqdm
+
+from dataset import DS
+from model import GraphRel
+
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -30,10 +39,11 @@ def get_args():
     
     return args
 
+
 def train_dl(args, model, dl, optzr):
     def get_loss(weight_loss, out, ans):
         out, ans = out.flatten(0, len(out.shape)-2), ans.flatten(0, len(ans.shape)-1).cuda()
-        ls = T.nn.functional.cross_entropy(out, ans, ignore_index=-1, reduction='none')
+        ls = torch.nn.functional.cross_entropy(out, ans, ignore_index=-1, reduction='none')
         weight = 1.0-(ans==-1).float()
         weight.masked_fill_(ans>0, weight_loss)
         ls = (ls*weight).sum() / (weight>0).sum()
@@ -61,6 +71,7 @@ def train_dl(args, model, dl, optzr):
     
     return ret
 
+
 def eval_dl(model, dl):
     ret = {'precision': [0, 0], 'recall': [0, 0], 'f1': 0}
     
@@ -71,7 +82,7 @@ def eval_dl(model, dl):
         elif args.arch=='2p':
             _, _, out_ne, out_rel = model(inp_sent.cuda(), inp_pos.cuda(), dep_fw.cuda(), dep_bw.cuda())
         
-        out_ne, out_rel = [T.argmax(out, dim=-1).data.cpu().numpy() for out in [out_ne, out_rel]]
+        out_ne, out_rel = [torch.argmax(out, dim=-1).data.cpu().numpy() for out in [out_ne, out_rel]]
         for o_ne, o_rel in zip(out_ne, out_rel):
             l = len(dl.dataset.dat[I]['sentence'])+1
             
@@ -115,6 +126,7 @@ def eval_dl(model, dl):
     
     return ret
 
+
 if __name__=='__main__':
     args = get_args()
     os.makedirs(args.path_output, exist_ok=True)
@@ -123,7 +135,7 @@ if __name__=='__main__':
     
     NLP = spacy.load('en_core_web_lg')
     ds_tr, ds_vl, ds_ts = [DS(NLP, args.path, typ, args.max_len) for typ in ['train', 'val', 'test']]
-    dl_tr, dl_vl, dl_ts = [T.utils.data.DataLoader(ds, batch_size=args.size_batch, 
+    dl_tr, dl_vl, dl_ts = [torch.utils.data.DataLoader(ds, batch_size=args.size_batch, 
                                                    shuffle=(ds is ds_tr), num_workers=32, pin_memory=True) \
                            for ds in [ds_tr, ds_vl, ds_ts]]
     
@@ -133,9 +145,9 @@ if __name__=='__main__':
     model = GraphRel(len(ds_tr.POS)+1, args.num_ne, args.num_rel, 
                      args.size_hid, args.layer_rnn, args.layer_gcn, args.dropout, 
                      args.arch).cuda()
-    T.save(model.state_dict(), '%s/model_0.pt'%(args.path_output))
+    torch.save(model.state_dict(), '%s/model_0.pt'%(args.path_output))
     
-    optzr = T.optim.AdamW(model.parameters(), lr=args.lr)
+    optzr = torch.optim.AdamW(model.parameters(), lr=args.lr)
     for e in tqdm(range(args.size_epoch), ascii=True):
         model.train()
         ls_tr = train_dl(args, model, dl_tr, optzr)
@@ -146,7 +158,7 @@ if __name__=='__main__':
         
         log['ls_tr'].append(ls_tr), log['f1_vl'].append(f1_vl), log['f1_ts'].append(f1_ts)
         json.dump(log, open('%s/log.json'%(args.path_output), 'w'), indent=2)
-        T.save(model.state_dict(), '%s/model_%d.pt'%(args.path_output, e+1))
+        torch.save(model.state_dict(), '%s/model_%d.pt'%(args.path_output, e+1))
         print('Ep %d:'%(e+1), ls_tr, f1_vl, f1_ts)
         
         for pg in optzr.param_groups:

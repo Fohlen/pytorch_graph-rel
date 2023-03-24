@@ -1,7 +1,12 @@
+import json
 
-from lib import *
+import numpy as np
+import spacy
+import torch
+from tqdm import tqdm
 
-class DS(T.utils.data.Dataset):
+
+class DS(torch.utils.data.Dataset):
     def __init__(self, NLP, path, typ, max_len):
         super().__init__()
         
@@ -57,11 +62,11 @@ class DS(T.utils.data.Dataset):
         
         return s, inp_sent, inp_pos, dep_fw, dep_bw, ans_ne, ans_rel
 
+
 if __name__=='__main__':
     NLP = spacy.load('en_core_web_lg')
     ds_tr, ds_vl, ds_ts = [DS(NLP, 'nyt', typ, 120) for typ in ['train', 'val', 'test']]
     
-    dl = T.utils.data.DataLoader(ds_tr, batch_size=64, shuffle=True, num_workers=32)
+    dl = torch.utils.data.DataLoader(ds_tr, batch_size=64, shuffle=True, num_workers=32)
     for s, inp_sent, inp_pos, dep_fw, dep_bw, ans_ne, ans_rel in tqdm(dl, ascii=True):
         print(len(s), inp_sent.shape, inp_pos.shape, dep_fw.shape, dep_bw.shape, ans_ne.shape, ans_rel.shape)
-    
