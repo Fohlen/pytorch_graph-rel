@@ -6,10 +6,13 @@ from datetime import datetime
 import numpy as np
 import spacy
 import torch
+import torch.utils.data
+import lightning.pytorch as pl
 from tqdm import tqdm
 
 from dataset import DS
 from model import GraphRel
+from module import LitGraphRel
 
 
 def get_args():
@@ -127,23 +130,45 @@ def eval_dl(model, dl):
     return ret
 
 
+def train_module(args: argparse.Namespace):
+    NLP = spacy.load('en_core_web_lg')
+    dataset = DS(NLP, args.path, "train", args.max_len)
+    train_loader = torch.utils.data.DataLoader(dataset, batch_size=args.size_batch)
+
+    model = GraphRel(
+        len(NLP.pipe_labels['tagger']) + 1,
+        args.num_ne,
+        args.num_rel,
+        args.size_hid,
+        args.layer_rnn,
+        args.layer_gcn,
+        args.dropout,
+        args.arch
+    )
+    module = LitGraphRel(model, args)
+    trainer = pl.Trainer(limit_train_batches=100, max_epochs=1, accelerator="cpu")
+    trainer.fit(model=module, train_dataloaders=train_loader)
+
+
 if __name__=='__main__':
     args = get_args()
+    train_module(args)
+    print("HI")
     os.makedirs(args.path_output, exist_ok=True)
     json.dump(vars(args), open('%s/args.json'%(args.path_output), 'w'), indent=2)
     print(args)
     
     NLP = spacy.load('en_core_web_lg')
     ds_tr, ds_vl, ds_ts = [DS(NLP, args.path, typ, args.max_len) for typ in ['train', 'val', 'test']]
-    dl_tr, dl_vl, dl_ts = [torch.utils.data.DataLoader(ds, batch_size=args.size_batch, 
+    dl_tr, dl_vl, dl_ts = [torch.utils.data.DataLoader(ds, batch_size=args.size_batch,
                                                    shuffle=(ds is ds_tr), num_workers=32, pin_memory=True) \
                            for ds in [ds_tr, ds_vl, ds_ts]]
-    
+
     log = {'ls_tr': [], 'f1_vl': [], 'f1_ts': []}
     json.dump(log, open('%s/log.json'%(args.path_output), 'w'), indent=2)
-    
-    model = GraphRel(len(ds_tr.POS)+1, args.num_ne, args.num_rel, 
-                     args.size_hid, args.layer_rnn, args.layer_gcn, args.dropout, 
+
+    model = GraphRel(len(ds_tr.POS)+1, args.num_ne, args.num_rel,
+                     args.size_hid, args.layer_rnn, args.layer_gcn, args.dropout,
                      args.arch)
     torch.save(model.state_dict(), '%s/model_0.pt'%(args.path_output))
     
