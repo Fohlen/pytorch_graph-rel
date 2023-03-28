@@ -1,4 +1,5 @@
 import argparse
+import os
 from pprint import pprint
 
 import spacy
@@ -17,6 +18,7 @@ def get_args():
     
     parser.add_argument("--path", default='nyt', type=str)
     parser.add_argument("--accelerator", default="cpu", type=str)
+    parser.add_argument("--num-workers", default=os.cpu_count(), type=int)
     
     parser.add_argument("--max_len", default=120, type=int)
     parser.add_argument("--num_ne", default=5, type=int)
@@ -98,9 +100,10 @@ if __name__ == '__main__':
     args = get_args()
     NLP = spacy.load('en_core_web_lg')
     train_dataset = DS(NLP, args.path, "train", args.max_len)
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.size_batch)
-    val_dataset = DS(NLP, args.path, "val", args.max_len)
-    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.size_batch)
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=args.size_batch, num_workers=args.num_workers
+    )
+    # we skip the validation set because this is not correctly defined in GraphREL
 
     model = GraphRel(
         len(NLP.pipe_labels['tagger']) + 1,
@@ -117,9 +120,13 @@ if __name__ == '__main__':
         max_epochs=args.size_epoch,
         accelerator=args.accelerator,
     )
-    trainer.fit(model=module, train_dataloaders=train_loader, val_dataloaders=val_loader)
+    trainer.fit(model=module, train_dataloaders=train_loader)
 
     dataset_test = DS(NLP, args.path, "test", args.max_len)
-    test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.size_batch)
+    test_loader = torch.utils.data.DataLoader(
+        dataset_test,
+        batch_size=args.size_batch,
+        num_workers=args.num_workers
+    )
     evaluation = eval_dl(model, test_loader, args)
     pprint(evaluation)
