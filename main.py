@@ -43,38 +43,6 @@ def get_args():
     return args
 
 
-def train_dl(args, model, dl, optzr):
-    def get_loss(weight_loss, out, ans):
-        out, ans = out.flatten(0, len(out.shape)-2), ans.flatten(0, len(ans.shape)-1)
-        ls = torch.nn.functional.cross_entropy(out, ans, ignore_index=-1, reduction='none')
-        weight = 1.0-(ans==-1).float()
-        weight.masked_fill_(ans>0, weight_loss)
-        ls = (ls*weight).sum() / (weight>0).sum()
-        return ls
-
-    ret = {'ls_ne': [], 'ls_rel': []}
-    for s, inp_sent, inp_pos, dep_fw, dep_bw, ans_ne, ans_rel in tqdm(dl, ascii=True):
-        if args.arch=='1p':
-            out_ne, out_rel = model(inp_sent, inp_pos, dep_fw, dep_bw.cuda())
-            ls_ne, ls_rel = get_loss(args.weight_loss, out_ne, ans_ne), get_loss(args.weight_loss, out_rel, ans_rel)
-            ls = ls_ne + args.weight_alpha*ls_rel
-        
-        elif args.arch=='2p':
-            out_ne1p, out_rel1p, out_ne2p, out_rel2p = model(inp_sent, inp_pos, dep_fw, dep_bw.cuda())
-            ls_ne1p, ls_rel1p = get_loss(args.weight_loss, out_ne1p, ans_ne), get_loss(args.weight_loss, out_rel1p, ans_rel)
-            ls_ne2p, ls_rel2p = get_loss(args.weight_loss, out_ne2p, ans_ne), get_loss(args.weight_loss, out_rel2p, ans_rel)
-            ls_ne, ls_rel = ls_ne2p, ls_rel2p
-            ls = (ls_ne1p+ls_ne2p) + args.weight_alpha*(ls_rel1p+ls_rel2p)
-        
-        optzr.zero_grad()
-        ls.backward()
-        optzr.step()
-        ret['ls_ne'].append(ls_ne.item()), ret['ls_rel'].append(ls_rel.item())
-    ret = {k: float(np.average(l)) for k, l in ret.items()}
-    
-    return ret
-
-
 def eval_dl(model, dl):
     ret = {'precision': [0, 0], 'recall': [0, 0], 'f1': 0}
     
@@ -153,38 +121,3 @@ def train_module(args: argparse.Namespace):
 if __name__=='__main__':
     args = get_args()
     train_module(args)
-    print("HI")
-    os.makedirs(args.path_output, exist_ok=True)
-    json.dump(vars(args), open('%s/args.json'%(args.path_output), 'w'), indent=2)
-    print(args)
-    
-    NLP = spacy.load('en_core_web_lg')
-    ds_tr, ds_vl, ds_ts = [DS(NLP, args.path, typ, args.max_len) for typ in ['train', 'val', 'test']]
-    dl_tr, dl_vl, dl_ts = [torch.utils.data.DataLoader(ds, batch_size=args.size_batch,
-                                                   shuffle=(ds is ds_tr), num_workers=32, pin_memory=True) \
-                           for ds in [ds_tr, ds_vl, ds_ts]]
-
-    log = {'ls_tr': [], 'f1_vl': [], 'f1_ts': []}
-    json.dump(log, open('%s/log.json'%(args.path_output), 'w'), indent=2)
-
-    model = GraphRel(len(ds_tr.POS)+1, args.num_ne, args.num_rel,
-                     args.size_hid, args.layer_rnn, args.layer_gcn, args.dropout,
-                     args.arch)
-    torch.save(model.state_dict(), '%s/model_0.pt'%(args.path_output))
-    
-    optzr = torch.optim.AdamW(model.parameters(), lr=args.lr)
-    for e in tqdm(range(args.size_epoch), ascii=True):
-        model.train()
-        ls_tr = train_dl(args, model, dl_tr, optzr)
-        
-        model.eval()
-        f1_vl = eval_dl(model, dl_vl)
-        f1_ts = eval_dl(model, dl_ts)
-        
-        log['ls_tr'].append(ls_tr), log['f1_vl'].append(f1_vl), log['f1_ts'].append(f1_ts)
-        json.dump(log, open('%s/log.json'%(args.path_output), 'w'), indent=2)
-        torch.save(model.state_dict(), '%s/model_%d.pt'%(args.path_output, e+1))
-        print('Ep %d:'%(e+1), ls_tr, f1_vl, f1_ts)
-        
-        for pg in optzr.param_groups:
-            pg['lr'] *= args.lr_decay
