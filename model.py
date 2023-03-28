@@ -31,9 +31,17 @@ class GCN(torch.nn.Module):
         return self.__class__.__name__+'(size_hid=%d)'%(self.size_hid)
 
 class GraphRel(torch.nn.Module):
-    def __init__(self, num_pos, num_ne, num_rel, 
-                 size_hid, layer_rnn, layer_gcn, dp, 
-                 arch='2p'):
+    def __init__(
+            self,
+            num_pos: int = 51,
+            num_ne: int = 5,
+            num_rel: int = 25,
+            size_hid: int = 256,
+            layer_rnn: int = 2,
+            layer_gcn: int = 2,
+            dp: float = 0.5,
+            arch: str = '2p'
+    ):
         super().__init__()
         
         self.arch = arch
