@@ -19,6 +19,7 @@ def get_args():
     parser = argparse.ArgumentParser()
     
     parser.add_argument("--path", default='nyt', type=str)
+    parser.add_argument("--accelerator", default="cpu", type=str)
     
     parser.add_argument("--max_len", default=120, type=int)
     parser.add_argument("--num_ne", default=5, type=int)
@@ -33,13 +34,11 @@ def get_args():
     parser.add_argument("--size_epoch", default=40, type=int)
     parser.add_argument("--size_batch", default=64, type=int)
     parser.add_argument("--lr", default=8e-4, type=float)
-    parser.add_argument("--lr_decay", default=0.9, type=float)
     parser.add_argument("--weight_loss", default=2.0, type=float)
     parser.add_argument("--weight_alpha", default=3.0, type=float)
     
     args = parser.parse_args()
-    args.path_output = '_snapshot/_%s_%s_%s'%(args.path, args.arch, datetime.now().strftime('%Y%m%d%H%M%S'))
-    
+
     return args
 
 
@@ -114,7 +113,7 @@ def train_module(args: argparse.Namespace):
         args.arch
     )
     module = LitGraphRel(model, args)
-    trainer = pl.Trainer(limit_train_batches=100, max_epochs=1, accelerator="cpu")
+    trainer = pl.Trainer(limit_train_batches=100, max_epochs=args.size_epoch, accelerator=args.accelerator)
     trainer.fit(model=module, train_dataloaders=train_loader)
 
 
