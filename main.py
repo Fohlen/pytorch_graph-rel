@@ -1,9 +1,6 @@
 import argparse
-import json
-import os
-from datetime import datetime
+from pprint import pprint
 
-import numpy as np
 import spacy
 import torch
 import torch.utils.data
@@ -42,15 +39,15 @@ def get_args():
     return args
 
 
-def eval_dl(model, dl):
+def eval_dl(model, dl, args):
     ret = {'precision': [0, 0], 'recall': [0, 0], 'f1': 0}
     
     I = 0
     for s, inp_sent, inp_pos, dep_fw, dep_bw, ans_ne, ans_rel in tqdm(dl, ascii=True):
         if args.arch=='1p':
-            out_ne, out_rel = model(inp_sent, inp_pos, dep_fw, dep_bw.cuda())
+            out_ne, out_rel = model(inp_sent, inp_pos, dep_fw, dep_bw)
         elif args.arch=='2p':
-            _, _, out_ne, out_rel = model(inp_sent, inp_pos, dep_fw, dep_bw.cuda())
+            _, _, out_ne, out_rel = model(inp_sent, inp_pos, dep_fw, dep_bw)
         
         out_ne, out_rel = [torch.argmax(out, dim=-1).data.cpu().numpy() for out in [out_ne, out_rel]]
         for o_ne, o_rel in zip(out_ne, out_rel):
@@ -97,10 +94,13 @@ def eval_dl(model, dl):
     return ret
 
 
-def train_module(args: argparse.Namespace):
+if __name__ == '__main__':
+    args = get_args()
     NLP = spacy.load('en_core_web_lg')
-    dataset = DS(NLP, args.path, "train", args.max_len)
-    train_loader = torch.utils.data.DataLoader(dataset, batch_size=args.size_batch)
+    train_dataset = DS(NLP, args.path, "train", args.max_len)
+    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.size_batch)
+    val_dataset = DS(NLP, args.path, "val", args.max_len)
+    val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.size_batch)
 
     model = GraphRel(
         len(NLP.pipe_labels['tagger']) + 1,
@@ -113,10 +113,13 @@ def train_module(args: argparse.Namespace):
         args.arch
     )
     module = LitGraphRel(model, args)
-    trainer = pl.Trainer(limit_train_batches=100, max_epochs=args.size_epoch, accelerator=args.accelerator)
-    trainer.fit(model=module, train_dataloaders=train_loader)
+    trainer = pl.Trainer(
+        max_epochs=args.size_epoch,
+        accelerator=args.accelerator,
+    )
+    trainer.fit(model=module, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
-
-if __name__=='__main__':
-    args = get_args()
-    train_module(args)
+    dataset_test = DS(NLP, args.path, "test", args.max_len)
+    test_loader = torch.utils.data.DataLoader(dataset_test, batch_size=args.size_batch)
+    evaluation = eval_dl(model, test_loader, args)
+    pprint(evaluation)
